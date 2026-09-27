@@ -52,6 +52,17 @@ mkdir -p "${UV_CACHE_DIR:-/app/data/.cache/uv}" \
 
 CCORE_VERSION="$(ccore_version)"
 
+# If remote Crawl4AI with token is used, content-core must be >= 2.0.7 to send the bearer token
+if [ -n "$CRAWL4AI_API_TOKEN" ]; then
+    case "$CCORE_VERSION" in
+        2.0.[0-6]*)
+            log "Upgrading content-core to >= 2.0.7 for CRAWL4AI_API_TOKEN Bearer auth support..."
+            "$VENV_PY" -m pip install -q "content-core>=2.0.7" || true
+            CCORE_VERSION="$(ccore_version)"
+            ;;
+    esac
+fi
+
 # ---------------------------------------------------------------------------
 # Docling
 # ---------------------------------------------------------------------------
@@ -111,6 +122,21 @@ if is_true "$OPEN_NOTEBOOK_ENABLE_CRAWL4AI"; then
         fi
     fi
 fi
+
+# ---------------------------------------------------------------------------
+# Tesseract OCR (Vietnamese & Japanese)
+# ---------------------------------------------------------------------------
+if ! command -v tesseract >/dev/null 2>&1; then
+    log "Installing Tesseract OCR (with Vietnamese & Japanese models)..."
+    apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+        tesseract-ocr tesseract-ocr-eng tesseract-ocr-vie tesseract-ocr-jpn 2>/dev/null || true
+fi
+if ! has_module pytesseract; then
+    uv pip install --python "$VENV_PY" pytesseract 2>/dev/null || "$VENV_PY" -m pip install pytesseract 2>/dev/null || true
+fi
+
+# Set default max upload size to 500MB if unset
+export OPEN_NOTEBOOK_MAX_UPLOAD_SIZE_MB="${OPEN_NOTEBOOK_MAX_UPLOAD_SIZE_MB:-500}"
 
 log "Starting Open Notebook."
 exec "$@"

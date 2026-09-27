@@ -104,4 +104,17 @@ describe('SettingsForm engine gating', () => {
       screen.getByRole('checkbox', { name: 'settings.ocrEnabled' })
     ).toBeDisabled()
   })
+
+  it('keeps vision_ocr toggle enabled regardless of docling availability', () => {
+    mockCapabilities({
+      docling_available: false,
+      crawl4ai_available: false,
+      crawl4ai_remote_configured: false,
+    })
+    render(<SettingsForm />)
+
+    expect(
+      screen.getByRole('checkbox', { name: 'settings.visionOcrEnabled' })
+    ).not.toBeDisabled()
+  })
 })

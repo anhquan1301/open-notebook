@@ -1,19 +1,21 @@
 'use client'
 
 import { useRouter, useParams } from 'next/navigation'
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import { useSourceChat } from '@/lib/hooks/use-source-chat'
 import { ChatPanel } from '@/components/sources/ChatPanel'
 import { useNavigation } from '@/lib/hooks/use-navigation'
 import { SourceDetailContent } from '@/components/sources/SourceDetailContent'
+import { cn } from '@/lib/utils'
 
 export default function SourceDetailPage() {
   const router = useRouter()
   const params = useParams()
   const sourceId = params?.id ? decodeURIComponent(params.id as string) : ''
   const navigation = useNavigation()
+  const [isChatMaximized, setIsChatMaximized] = useState(false)
 
   // Initialize source chat
   const chat = useSourceChat(sourceId)
@@ -40,9 +42,12 @@ export default function SourceDetailPage() {
       </div>
 
       {/* Main content: Source detail + Chat */}
-      <div className="flex-1 grid gap-6 lg:grid-cols-[2fr_1fr] overflow-hidden px-6">
+      <div className={cn(
+        "flex-1 grid gap-6 overflow-hidden px-6 pb-6 min-h-0",
+        isChatMaximized ? "grid-cols-1" : "lg:grid-cols-[2fr_1fr]"
+      )}>
         {/* Left column - Source detail */}
-        <div className="overflow-y-auto px-4 pb-6">
+        <div className={cn("overflow-y-auto px-4 pb-2 min-h-0", isChatMaximized && "hidden")}>
           <SourceDetailContent
             sourceId={sourceId}
             showChatButton={false}
@@ -51,12 +56,13 @@ export default function SourceDetailPage() {
         </div>
 
         {/* Right column - Chat */}
-        <div className="overflow-y-auto px-4 pb-6">
+        <div className="h-full flex flex-col min-h-0 overflow-hidden">
           <ChatPanel
             messages={chat.messages}
             isStreaming={chat.isStreaming}
             contextIndicators={chat.contextIndicators}
             onSendMessage={(message, model) => chat.sendMessage(message, model)}
+            onCancel={chat.cancelStreaming}
             modelOverride={chat.currentSession?.model_override}
             onModelChange={(model) => {
               if (chat.currentSessionId) {
@@ -70,6 +76,8 @@ export default function SourceDetailPage() {
             onUpdateSession={(sessionId, title) => chat.updateSession(sessionId, { title })}
             onDeleteSession={chat.deleteSession}
             loadingSessions={chat.loadingSessions}
+            isMaximized={isChatMaximized}
+            onToggleMaximize={() => setIsChatMaximized((prev) => !prev)}
           />
         </div>
       </div>

@@ -9,6 +9,8 @@ interface SourceDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   sourceId: string | null
+  highlightText?: string
+  onClearHighlight?: () => void
 }
 
 /**
@@ -17,7 +19,7 @@ interface SourceDialogProps {
  * Displays source details in a modal dialog.
  * Includes a "Chat with source" button that navigates to the full source page in-app.
  */
-export function SourceDialog({ open, onOpenChange, sourceId }: SourceDialogProps) {
+export function SourceDialog({ open, onOpenChange, sourceId, highlightText, onClearHighlight }: SourceDialogProps) {
   const { t } = useTranslation()
   const router = useRouter()
   // Ensure source ID has 'source:' prefix for API calls and routing
@@ -53,6 +55,8 @@ export function SourceDialog({ open, onOpenChange, sourceId }: SourceDialogProps
             showChatButton={true}
             onChatClick={handleChatClick}
             onClose={handleClose}
+            highlightText={highlightText}
+            onClearHighlight={onClearHighlight}
           />
         </div>
       </DialogContent>

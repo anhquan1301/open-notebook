@@ -47,7 +47,7 @@ router = APIRouter()
 
 
 async def _assert_file_supported(file_path: str) -> None:
-    """Pre-flight check that content-core can actually extract this file.
+    """Pre-flight check that content-core or ocr_service can extract this file.
 
     Rejects unsupported uploads at ingestion time (HTTP 415) instead of letting
     them enqueue a background job that fails and then burns the full retry
@@ -59,6 +59,12 @@ async def _assert_file_supported(file_path: str) -> None:
     so this never turns a transient problem into a hard rejection — real
     extraction will surface those.
     """
+    from open_notebook.utils.ocr_service import is_image_file
+    from open_notebook.utils.document_ocr import is_document_with_images_supported
+
+    if is_image_file(file_path) or is_document_with_images_supported(file_path):
+        return
+
     try:
         support = await check_file_support(file_path)
     except Exception as e:  # pragma: no cover - defensive
@@ -494,8 +500,16 @@ async def _create_source_async_path(
     else:
         source_asset = None
 
+    default_title = "Processing..."
+    if source_data.title and source_data.title.strip():
+        default_title = source_data.title.strip()
+    elif file_path or source_data.file_path:
+        default_title = os.path.basename(file_path or source_data.file_path)
+    elif source_data.url:
+        default_title = source_data.url
+
     source = Source(
-        title=source_data.title or "Processing...",
+        title=default_title,
         topics=[],
         asset=source_asset,
     )
@@ -576,8 +590,16 @@ async def _create_source_sync_path(
         import commands.source_commands  # noqa: F401
 
         # Create source record - let SurrealDB generate the ID
+        default_title = "Processing..."
+        if source_data.title and source_data.title.strip():
+            default_title = source_data.title.strip()
+        elif source_data.file_path:
+            default_title = os.path.basename(source_data.file_path)
+        elif source_data.url:
+            default_title = source_data.url
+
         source = Source(
-            title=source_data.title or "Processing...",
+            title=default_title,
             topics=[],
         )
         await source.save()

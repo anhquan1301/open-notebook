@@ -22,6 +22,7 @@ export function useSourceChat(sourceId: string) {
   const [isStreaming, setIsStreaming] = useState(false)
   const [contextIndicators, setContextIndicators] = useState<SourceChatContextIndicator | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null)
 
   // Fetch sessions
   const { data: sessions = [], isLoading: loadingSessions, refetch: refetchSessions } = useQuery<SourceChatSession[]>({
@@ -37,12 +38,18 @@ export function useSourceChat(sourceId: string) {
     enabled: !!sourceId && !!currentSessionId
   })
 
-  // Update messages when session changes
+  const lastLoadedSessionIdRef = useRef<string | null>(null)
+
+  // Update messages when session changes, guarding against overwriting active stream
   useEffect(() => {
     if (currentSession?.messages) {
-      setMessages(currentSession.messages)
+      const isSessionSwitch = currentSession.id !== lastLoadedSessionIdRef.current
+      if (isSessionSwitch || !isStreaming) {
+        setMessages(currentSession.messages)
+        lastLoadedSessionIdRef.current = currentSession.id
+      }
     }
-  }, [currentSession])
+  }, [currentSession, isStreaming])
 
   // Auto-select most recent session when sessions are loaded
   useEffect(() => {
@@ -131,22 +138,28 @@ export function useSourceChat(sourceId: string) {
     setMessages(prev => [...prev, userMessage])
     setIsStreaming(true)
 
+    // Setup abort controller
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+
     try {
       const response = await sourceChatApi.sendMessage(sourceId, sessionId, {
         message,
         model_override: modelOverride
-      })
+      }, abortController.signal)
 
       if (!response) {
         throw new Error('No response body')
       }
 
       const reader = response.getReader()
+      readerRef.current = reader
       const decoder = new TextDecoder()
       let aiMessage: SourceChatMessage | null = null
       let buffer = ''
 
       while (true) {
+        if (abortController.signal.aborted) break
         const { done, value } = await reader.read()
         if (done) break
 
@@ -171,20 +184,34 @@ export function useSourceChat(sourceId: string) {
                     id: `ai-${Date.now()}`,
                     type: 'ai',
                     content: data.content || '',
+                    thinking: data.thinking || undefined,
                     timestamp: new Date().toISOString()
                   }
                   setMessages(prev => [...prev, aiMessage!])
                 } else {
                   aiMessage.content += data.content || ''
+                  if (data.thinking) {
+                    aiMessage.thinking = data.thinking
+                  }
                   setMessages(prev =>
                     prev.map(msg => msg.id === aiMessage!.id
-                      ? { ...msg, content: aiMessage!.content }
+                      ? { ...msg, content: aiMessage!.content, thinking: aiMessage!.thinking }
                       : msg
                     )
                   )
                 }
               } else if (data.type === 'context_indicators') {
                 setContextIndicators(data.data)
+              } else if (data.type === 'complete') {
+                if (data.follow_ups && aiMessage) {
+                  aiMessage.follow_ups = data.follow_ups
+                  setMessages(prev =>
+                    prev.map(msg => msg.id === aiMessage!.id
+                      ? { ...msg, follow_ups: data.follow_ups }
+                      : msg
+                    )
+                  )
+                }
               } else if (data.type === 'error') {
                 throw new Error(data.message || 'Stream error')
               }
@@ -199,13 +226,19 @@ export function useSourceChat(sourceId: string) {
         }
       }
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } }, message?: string };
+      const error = err as { name?: string, response?: { data?: { detail?: string } }, message?: string };
+      if (abortController.signal.aborted || error.name === 'AbortError') {
+        // User stopped streaming
+        return
+      }
       console.error('Error sending message:', error)
       toast.error(getApiErrorMessage(error.response?.data?.detail || error.message, (key) => t(key), 'apiErrors.failedToSendMessage'))
       // Remove optimistic messages on error
       setMessages(prev => prev.filter(msg => !msg.id.startsWith('temp-')))
     } finally {
+      readerRef.current = null
       setIsStreaming(false)
+      abortControllerRef.current = null
       // Refetch session to get persisted messages
       refetchCurrentSession()
     }
@@ -215,8 +248,13 @@ export function useSourceChat(sourceId: string) {
   const cancelStreaming = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
-      setIsStreaming(false)
+      abortControllerRef.current = null
     }
+    if (readerRef.current) {
+      readerRef.current.cancel().catch(() => {})
+      readerRef.current = null
+    }
+    setIsStreaming(false)
   }, [])
 
   // Switch session

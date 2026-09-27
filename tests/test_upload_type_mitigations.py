@@ -152,3 +152,13 @@ class TestPreflightFileSupport:
         ):
             # must not raise
             await _assert_file_supported("/uploads/missing.pdf")
+
+    @pytest.mark.asyncio
+    async def test_office_documents_pass_preflight_directly(self):
+        """Supported document types (.pptx, .docx, .xlsx, .pdf) handled by document_ocr
+        bypass check_file_support directly so they aren't rejected as application/zip."""
+        from api.routers.sources import _assert_file_supported
+
+        for ext in [".pptx", ".docx", ".xlsx", ".pdf"]:
+            # must not raise
+            await _assert_file_supported(f"/uploads/presentation{ext}")

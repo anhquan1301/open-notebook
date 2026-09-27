@@ -4,6 +4,7 @@ import React, { useState, useEffect, memo } from 'react'
 import { SourceListResponse } from '@/lib/types/api'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -222,15 +223,35 @@ function SourceCardImpl({
   return (
     <Card
       className={cn(
-        'transition-colors duration-150 shadow-none hover:border-sage/50 group relative cursor-pointer border',
+        'transition-all duration-150 shadow-none hover:border-sage/50 group relative cursor-pointer border',
+        contextMode === 'off' && 'opacity-65 hover:opacity-100 bg-muted/20 border-dashed',
         className
       )}
       onClick={handleCardClick}
     >
-      <CardContent className="px-3 py-1">
-        {/* Header with status indicator */}
-        <div className="flex items-start justify-between gap-3 mb-1">
-          <div className="flex-1 min-w-0">
+      <CardContent className="px-3 py-1.5 flex items-start gap-2.5">
+        {onContextModeChange && contextMode && (
+          <div
+            className="pt-0.5 flex-shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Checkbox
+              checked={contextMode !== 'off'}
+              onCheckedChange={(checked) => {
+                if (checked) {
+                  onContextModeChange(source.insights_count > 0 ? 'insights' : 'full')
+                } else {
+                  onContextModeChange('off')
+                }
+              }}
+              aria-label={title}
+            />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          {/* Header with status indicator */}
+          <div className="flex items-start justify-between gap-3 mb-1">
+            <div className="flex-1 min-w-0">
             {/* Status badge - only show if not completed */}
             {!isCompleted && (
               <div className="flex items-center gap-2 mb-2">
@@ -419,6 +440,7 @@ function SourceCardImpl({
             </div>
           </div>
         )}
+        </div>
       </CardContent>
     </Card>
   )

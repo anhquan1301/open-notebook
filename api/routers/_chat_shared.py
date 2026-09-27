@@ -12,6 +12,7 @@ Behavior notes:
   them to the same status codes and messages as before.
 """
 
+import re
 from typing import Any, Iterable, List, Optional, Tuple
 
 from fastapi import HTTPException
@@ -19,6 +20,31 @@ from pydantic import BaseModel, Field
 
 from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import ChatSession, Source
+from open_notebook.utils import parse_thinking_content
+
+
+def parse_follow_up_questions(content: str) -> Tuple[List[str], str]:
+    """Extract <followups> questions from content and return (questions, cleaned_content)."""
+    if not isinstance(content, str) or "<followups>" not in content.lower():
+        return [], content
+
+    pattern = r"<followups>([\s\S]*?)(?:</followups>|$)"
+    match = re.search(pattern, content, re.IGNORECASE)
+    if not match:
+        return [], content
+
+    raw_block = match.group(1).strip()
+    questions: List[str] = []
+    for line in raw_block.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        cleaned_line = re.sub(r"^(?:[-*•]|\d+\.)\s*", "", line).strip()
+        if cleaned_line:
+            questions.append(cleaned_line)
+
+    cleaned_content = re.sub(pattern, "", content, flags=re.IGNORECASE).rstrip()
+    return questions, cleaned_content
 
 
 # Shared response models
@@ -27,6 +53,8 @@ class ChatMessage(BaseModel):
     type: str = Field(..., description="Message type (human|ai)")
     content: str = Field(..., description="Message content")
     timestamp: Optional[str] = Field(None, description="Message timestamp")
+    thinking: Optional[str] = Field(None, description="Model thinking process if available")
+    follow_ups: Optional[List[str]] = Field(default_factory=list, description="Suggested follow-up questions")
 
 
 class SuccessResponse(BaseModel):
@@ -83,12 +111,31 @@ def extract_chat_messages(raw_messages: Iterable[Any]) -> List[ChatMessage]:
     """Convert LangGraph/LangChain state messages into `ChatMessage` models."""
     messages: List[ChatMessage] = []
     for msg in raw_messages:
+        thinking: Optional[str] = None
+        if hasattr(msg, "additional_kwargs") and isinstance(msg.additional_kwargs, dict):
+            thinking = msg.additional_kwargs.get("thinking") or msg.additional_kwargs.get("reasoning_content")
+        if not thinking and hasattr(msg, "response_metadata") and isinstance(msg.response_metadata, dict):
+            thinking = msg.response_metadata.get("thinking") or msg.response_metadata.get("reasoning_content")
+
+        content = msg.content if hasattr(msg, "content") else str(msg)
+        if not thinking and isinstance(content, str) and ("<think>" in content or "</think>" in content):
+            parsed_thinking, cleaned = parse_thinking_content(content)
+            if parsed_thinking:
+                thinking = parsed_thinking
+                content = cleaned
+
+        follow_ups: List[str] = []
+        if isinstance(content, str) and "<followups>" in content.lower():
+            follow_ups, content = parse_follow_up_questions(content)
+
         messages.append(
             ChatMessage(
-                id=getattr(msg, "id", f"msg_{len(messages)}"),
+                id=getattr(msg, "id", None) or f"msg_{len(messages)}",
                 type=msg.type if hasattr(msg, "type") else "unknown",
-                content=msg.content if hasattr(msg, "content") else str(msg),
+                content=content,
                 timestamp=None,  # LangChain messages don't have timestamps by default
+                thinking=thinking,
+                follow_ups=follow_ups,
             )
         )
     return messages

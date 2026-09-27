@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { getAuthToken } from '@/lib/auth-token'
 import {
   NotebookChatSession,
   NotebookChatSessionWithMessages,
@@ -47,7 +48,7 @@ export const chatApi = {
     await apiClient.delete(`/chat/sessions/${sessionId}`)
   },
 
-  // Messaging (synchronous, no streaming)
+  // Messaging (synchronous fallback)
   sendMessage: async (data: SendNotebookChatMessageRequest) => {
     const response = await apiClient.post<{
       session_id: string
@@ -57,6 +58,27 @@ export const chatApi = {
       data
     )
     return response.data
+  },
+
+  // Messaging with streaming (SSE)
+  streamMessage: (data: SendNotebookChatMessageRequest, signal?: AbortSignal) => {
+    const token = getAuthToken()
+    const url = `/api/chat/stream`
+
+    return fetch(url, {
+      method: 'POST',
+      signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` })
+      },
+      body: JSON.stringify(data)
+    }).then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      return response.body
+    })
   },
 
   buildContext: async (data: BuildContextRequest) => {

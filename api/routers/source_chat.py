@@ -4,25 +4,33 @@ from typing import AsyncGenerator, List, Optional
 
 from fastapi import APIRouter, HTTPException, Path
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from ai_prompter import Prompter
 from api.routers._chat_shared import (
     ChatMessage,
     SuccessResponse,
     extract_chat_messages,
     get_source_or_404,
     get_verified_source_session,
+    parse_follow_up_questions,
 )
+from open_notebook.ai.models import DefaultModels
+from open_notebook.ai.provision import provision_langchain_model
 from open_notebook.database.repository import ensure_record_id, repo_query
-from open_notebook.domain.notebook import ChatSession
+from open_notebook.domain.notebook import ChatSession, Source, SourceInsight
 from open_notebook.exceptions import (
     NotFoundError,
     OpenNotebookError,
 )
-from open_notebook.graphs.source_chat import source_chat_graph as source_chat_graph
+from open_notebook.graphs.source_chat import (
+    _source_content_is_available,
+    source_chat_graph as source_chat_graph,
+)
+from open_notebook.utils.context_builder import build_source_context, format_source_context
 from open_notebook.utils.graph_utils import get_session_message_count
 
 router = APIRouter()
@@ -355,45 +363,169 @@ async def stream_source_chat_response(
         user_event = {"type": "user_message", "content": message, "timestamp": None}
         yield f"data: {json.dumps(user_event)}\n\n"
 
-        # Run the synchronous LangGraph invoke in a thread so it doesn't block the
-        # event loop. While blocked, even the already-yielded SSE events can't
-        # flush and every other request stalls until the LLM finishes. Mirrors the
-        # get_state() calls above.
-        # The lambda pins down which `invoke` overload is used; asyncio.to_thread
-        # can't resolve overloaded callables on its own. The ignore is a langgraph
-        # typing limitation: it accepts a partial state dict at runtime, but the
-        # signature requires the full state type.
-        result = await asyncio.to_thread(
-            lambda: source_chat_graph.invoke(
-                input=state_values,  # type: ignore[arg-type]
-                config=RunnableConfig(
-                    configurable={"thread_id": session_id, "model_id": model_override}
-                ),
-            )
+        # 2. Build context
+        context_data = await build_source_context(
+            source_id=source_id,
+            max_tokens=50000,
         )
 
-        # Stream the complete AI response
-        if "messages" in result:
-            for msg in result["messages"]:
-                if hasattr(msg, "type") and msg.type == "ai":
+        source = None
+        insights = []
+        context_indicators: dict[str, list[str | None]] = {
+            "sources": [],
+            "insights": [],
+            "notes": [],
+        }
+
+        if context_data.get("sources"):
+            source_info = context_data["sources"][0]
+            source = Source(**source_info) if isinstance(source_info, dict) else source_info
+            if (
+                isinstance(source_info, dict)
+                and _source_content_is_available(source_info, context_data)
+                and source.id
+            ):
+                context_indicators["sources"].append(source.id)
+
+        if context_data.get("insights"):
+            for insight_data in context_data["insights"]:
+                insight = (
+                    SourceInsight(**insight_data)
+                    if isinstance(insight_data, dict)
+                    else insight_data
+                )
+                insights.append(insight)
+                context_indicators["insights"].append(insight.id)
+
+        formatted_context = format_source_context(context_data)
+
+        prompt_data = {
+            "source": source.model_dump() if source else None,
+            "insights": [insight.model_dump() for insight in insights] if insights else [],
+            "context": formatted_context,
+            "context_indicators": context_indicators,
+        }
+
+        system_prompt = Prompter(prompt_template="source_chat/system").render(
+            data=prompt_data
+        )
+        payload = [SystemMessage(content=system_prompt)] + state_values["messages"]
+
+        # 3. Provision streaming model
+        defaults = await DefaultModels.get_instance()
+        chat_max_tokens = getattr(defaults, "chat_max_tokens", None) or 8192
+
+        model = await provision_langchain_model(
+            str(payload),
+            model_override,
+            "chat",
+            streaming=True,
+            max_tokens=chat_max_tokens,
+        )
+
+        full_content_parts = []
+        full_thinking_parts = []
+        stream_completed = False
+
+        try:
+            async for chunk in model.astream(payload):
+                thinking_delta = ""
+                if hasattr(chunk, "additional_kwargs") and isinstance(
+                    chunk.additional_kwargs, dict
+                ):
+                    thinking_delta = (
+                        chunk.additional_kwargs.get("thinking")
+                        or chunk.additional_kwargs.get("reasoning_content")
+                        or ""
+                    )
+
+                content_delta = chunk.content if hasattr(chunk, "content") else str(chunk)
+
+                if thinking_delta:
+                    full_thinking_parts.append(thinking_delta)
+                if content_delta:
+                    full_content_parts.append(content_delta)
+
+                if thinking_delta or content_delta:
+                    current_thinking = (
+                        "".join(full_thinking_parts) if full_thinking_parts else None
+                    )
                     ai_event = {
                         "type": "ai_message",
-                        "content": msg.content if hasattr(msg, "content") else str(msg),
+                        "content": content_delta,
+                        "thinking": current_thinking,
+                        "thinking_delta": thinking_delta,
                         "timestamp": None,
                     }
                     yield f"data: {json.dumps(ai_event)}\n\n"
 
-        # Stream context indicators
-        if "context_indicators" in result:
-            context_event = {
-                "type": "context_indicators",
-                "data": result["context_indicators"],
-            }
-            yield f"data: {json.dumps(context_event)}\n\n"
+            # 4. Finalize and persist
+            full_content = "".join(full_content_parts)
+            full_thinking = "".join(full_thinking_parts) if full_thinking_parts else None
 
-        # Send completion signal
-        completion_event = {"type": "complete"}
-        yield f"data: {json.dumps(completion_event)}\n\n"
+            extra_kwargs = {}
+            if full_thinking:
+                extra_kwargs["thinking"] = full_thinking
+                extra_kwargs["reasoning_content"] = full_thinking
+
+            ai_message = AIMessage(content=full_content, additional_kwargs=extra_kwargs)
+
+            await asyncio.to_thread(
+                source_chat_graph.update_state,
+                config=RunnableConfig(configurable={"thread_id": session_id}),
+                values={
+                    "messages": [user_message, ai_message],
+                    "source": source,
+                    "insights": insights,
+                    "context": formatted_context,
+                    "context_indicators": context_indicators,
+                    "model_override": model_override,
+                },
+            )
+
+            stream_completed = True
+
+            # Stream context indicators
+            if context_indicators.get("sources") or context_indicators.get("insights"):
+                context_event = {
+                    "type": "context_indicators",
+                    "data": context_indicators,
+                }
+                yield f"data: {json.dumps(context_event)}\n\n"
+
+            # Send completion signal with parsed follow_ups if any
+            follow_ups, _ = parse_follow_up_questions(full_content)
+            completion_event = {"type": "complete", "follow_ups": follow_ups}
+            yield f"data: {json.dumps(completion_event)}\n\n"
+
+        except (asyncio.CancelledError, GeneratorExit):
+            logger.warning(f"Source chat stream cancelled or disconnected for session {session_id}")
+            raise
+        finally:
+            if not stream_completed and (full_content_parts or full_thinking_parts):
+                try:
+                    partial_content = "".join(full_content_parts)
+                    partial_thinking = "".join(full_thinking_parts) if full_thinking_parts else None
+                    extra_kwargs = {}
+                    if partial_thinking:
+                        extra_kwargs["thinking"] = partial_thinking
+                        extra_kwargs["reasoning_content"] = partial_thinking
+                    partial_ai = AIMessage(content=partial_content, additional_kwargs=extra_kwargs)
+                    await asyncio.to_thread(
+                        source_chat_graph.update_state,
+                        config=RunnableConfig(configurable={"thread_id": session_id}),
+                        values={
+                            "messages": [user_message, partial_ai],
+                            "source": source,
+                            "insights": insights,
+                            "context": formatted_context,
+                            "context_indicators": context_indicators,
+                            "model_override": model_override,
+                        },
+                    )
+                    logger.info(f"Persisted partial source chat message ({len(partial_content)} chars) for session {session_id}")
+                except Exception as save_err:
+                    logger.error(f"Error persisting partial source chat stream: {save_err}")
 
     except Exception as e:
         from open_notebook.utils.error_classifier import classify_error

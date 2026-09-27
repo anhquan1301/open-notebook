@@ -25,6 +25,7 @@ const settingsSchema = z.object({
   docling_ocr: z.boolean().optional(),
   docling_formulas: z.boolean().optional(),
   docling_vision: z.boolean().optional(),
+  vision_ocr: z.boolean().optional(),
 })
 
 type SettingsFormData = z.infer<typeof settingsSchema>
@@ -66,6 +67,7 @@ export function SettingsForm() {
       docling_ocr: undefined,
       docling_formulas: undefined,
       docling_vision: undefined,
+      vision_ocr: undefined,
     }
   })
 
@@ -84,6 +86,7 @@ export function SettingsForm() {
         docling_ocr: settings.docling_ocr ?? true,
         docling_formulas: settings.docling_formulas ?? false,
         docling_vision: settings.docling_vision ?? false,
+        vision_ocr: settings.vision_ocr ?? true,
       }
       reset(formData)
       setHasResetForm(true)
@@ -216,6 +219,25 @@ export function SettingsForm() {
               <Label htmlFor="docling_vision">{t('settings.visionEnabled')}</Label>
             </div>
             <p className="text-sm text-muted-foreground">{t('settings.visionHelp')}</p>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Controller
+                name="vision_ocr"
+                control={control}
+                render={({ field }) => (
+                  <Checkbox
+                    id="vision_ocr"
+                    checked={field.value ?? true}
+                    onCheckedChange={field.onChange}
+                    disabled={field.disabled || isLoading}
+                  />
+                )}
+              />
+              <Label htmlFor="vision_ocr">{t('settings.visionOcrEnabled')}</Label>
+            </div>
+            <p className="text-sm text-muted-foreground">{t('settings.visionOcrHelp')}</p>
           </div>
 
           <div className="space-y-3">

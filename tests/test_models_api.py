@@ -442,6 +442,7 @@ class TestUpdateDefaultModels:
         defaults.default_speech_to_text_model = None
         defaults.default_embedding_model = "model:embed"
         defaults.default_tools_model = "model:tools"
+        defaults.chat_max_tokens = 8192
         defaults.update = AsyncMock()
         return defaults
 
@@ -479,6 +480,18 @@ class TestUpdateDefaultModels:
             assert response.status_code == 400, field
             assert field in response.json()["detail"]
             defaults.update.assert_not_awaited()
+
+    def test_update_and_clear_chat_max_tokens(self, client):
+        defaults = self._mock_defaults()
+        response = self._put(client, defaults, {"chat_max_tokens": 16384})
+        assert response.status_code == 200
+        assert defaults.chat_max_tokens == 16384
+        assert response.json()["chat_max_tokens"] == 16384
+
+        response = self._put(client, defaults, {"chat_max_tokens": None})
+        assert response.status_code == 200
+        assert defaults.chat_max_tokens is None
+        assert response.json()["chat_max_tokens"] is None
 
     def test_required_default_can_still_be_reassigned(self, client):
         defaults = self._mock_defaults()

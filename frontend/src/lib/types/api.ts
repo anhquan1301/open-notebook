@@ -60,6 +60,7 @@ export interface SettingsResponse {
   docling_ocr?: boolean
   docling_formulas?: boolean
   docling_vision?: boolean
+  vision_ocr?: boolean
   youtube_preferred_languages?: string[]
 }
 
@@ -158,6 +159,8 @@ export interface SourceChatMessage {
   type: 'human' | 'ai'
   content: string
   timestamp?: string
+  thinking?: string
+  follow_ups?: string[]
 }
 
 export interface SourceChatContextIndicator {
@@ -193,6 +196,7 @@ export interface SourceChatStreamEvent {
   data?: unknown
   message?: string
   timestamp?: string
+  follow_ups?: string[]
 }
 
 // Notebook Chat Types
@@ -205,6 +209,8 @@ export interface NotebookChatMessage {
   type: 'human' | 'ai'
   content: string
   timestamp?: string
+  thinking?: string
+  follow_ups?: string[]
 }
 
 export interface NotebookChatSessionWithMessages extends NotebookChatSession {

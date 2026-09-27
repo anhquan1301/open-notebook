@@ -1,8 +1,12 @@
 import asyncio
+import json
 import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
+from ai_prompter import Prompter
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -12,7 +16,10 @@ from api.routers._chat_shared import (
     SuccessResponse,
     extract_chat_messages,
     get_session_or_404,
+    parse_follow_up_questions,
 )
+from open_notebook.ai.models import DefaultModels
+from open_notebook.ai.provision import provision_langchain_model
 from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import ChatSession, Notebook
 from open_notebook.exceptions import (
@@ -386,6 +393,193 @@ async def execute_chat(request: ExecuteChatRequest):
             f"  Traceback:\n{traceback.format_exc()}"
         )
         raise HTTPException(status_code=500, detail=f"Error executing chat: {str(e)}")
+
+
+async def stream_chat_response(
+    session_id: str,
+    message: str,
+    context: Dict[str, Any],
+    model_override: Optional[str] = None,
+) -> AsyncGenerator[str, None]:
+    """Stream notebook chat response token-by-token with thinking via SSE."""
+    try:
+        # Verify session exists (normalizes the ID and 404s if missing)
+        full_session_id, session = await get_session_or_404(session_id)
+
+        # Fetch notebook linked to this session
+        notebook_query = await repo_query(
+            "SELECT out FROM refers_to WHERE in = $session_id",
+            {"session_id": ensure_record_id(full_session_id)},
+        )
+        notebook = None
+        if notebook_query:
+            notebook = await Notebook.get(notebook_query[0]["out"])
+
+        # Determine model override
+        effective_model_override = (
+            model_override
+            if model_override is not None
+            else getattr(session, "model_override", None)
+        )
+
+        # Get current state
+        current_state = await asyncio.to_thread(
+            chat_graph.get_state,
+            config=RunnableConfig(configurable={"thread_id": full_session_id}),
+        )
+
+        state_values = current_state.values if current_state else {}
+        state_values["messages"] = list(state_values.get("messages", []))
+        state_values["context"] = context
+        state_values["notebook"] = notebook
+        state_values["model_override"] = effective_model_override
+
+        user_message = HumanMessage(content=message)
+        state_values["messages"].append(user_message)
+
+        # 1. Yield user message event
+        user_event = {"type": "user_message", "content": message, "timestamp": None}
+        yield f"data: {json.dumps(user_event)}\n\n"
+
+        # 2. Render prompt
+        system_prompt = Prompter(prompt_template="chat/system").render(
+            data=state_values
+        )
+        payload = [SystemMessage(content=system_prompt)] + state_values["messages"]
+
+        # 3. Provision streaming model
+        defaults = await DefaultModels.get_instance()
+        chat_max_tokens = getattr(defaults, "chat_max_tokens", None) or 8192
+
+        model = await provision_langchain_model(
+            str(payload),
+            effective_model_override,
+            "chat",
+            streaming=True,
+            max_tokens=chat_max_tokens,
+        )
+
+        full_content_parts = []
+        full_thinking_parts = []
+        stream_completed = False
+
+        try:
+            async for chunk in model.astream(payload):
+                thinking_delta = ""
+                if hasattr(chunk, "additional_kwargs") and isinstance(
+                    chunk.additional_kwargs, dict
+                ):
+                    thinking_delta = (
+                        chunk.additional_kwargs.get("thinking")
+                        or chunk.additional_kwargs.get("reasoning_content")
+                        or ""
+                    )
+
+                content_delta = chunk.content if hasattr(chunk, "content") else str(chunk)
+
+                if thinking_delta:
+                    full_thinking_parts.append(thinking_delta)
+                if content_delta:
+                    full_content_parts.append(content_delta)
+
+                if thinking_delta or content_delta:
+                    current_thinking = (
+                        "".join(full_thinking_parts) if full_thinking_parts else None
+                    )
+                    ai_event = {
+                        "type": "ai_message",
+                        "content": content_delta,
+                        "thinking": current_thinking,
+                        "thinking_delta": thinking_delta,
+                        "timestamp": None,
+                    }
+                    yield f"data: {json.dumps(ai_event)}\n\n"
+
+            # 4. Finalize and persist
+            full_content = "".join(full_content_parts)
+            full_thinking = "".join(full_thinking_parts) if full_thinking_parts else None
+
+            extra_kwargs = {}
+            if full_thinking:
+                extra_kwargs["thinking"] = full_thinking
+                extra_kwargs["reasoning_content"] = full_thinking
+
+            ai_message = AIMessage(content=full_content, additional_kwargs=extra_kwargs)
+
+            # Persist messages to LangGraph checkpoint in a worker thread
+            await asyncio.to_thread(
+                chat_graph.update_state,
+                config=RunnableConfig(configurable={"thread_id": full_session_id}),
+                values={
+                    "messages": [user_message, ai_message],
+                    "context": context,
+                    "notebook": notebook,
+                    "model_override": effective_model_override,
+                },
+            )
+
+            await session.save()
+            stream_completed = True
+
+            # Send completion event with parsed follow_ups if any
+            follow_ups, _ = parse_follow_up_questions(full_content)
+            completion_event = {"type": "complete", "follow_ups": follow_ups}
+            yield f"data: {json.dumps(completion_event)}\n\n"
+
+        except (asyncio.CancelledError, GeneratorExit):
+            logger.warning(f"Notebook chat stream cancelled or disconnected for session {full_session_id}")
+            raise
+        finally:
+            if not stream_completed and (full_content_parts or full_thinking_parts):
+                try:
+                    partial_content = "".join(full_content_parts)
+                    partial_thinking = "".join(full_thinking_parts) if full_thinking_parts else None
+                    extra_kwargs = {}
+                    if partial_thinking:
+                        extra_kwargs["thinking"] = partial_thinking
+                        extra_kwargs["reasoning_content"] = partial_thinking
+                    partial_ai = AIMessage(content=partial_content, additional_kwargs=extra_kwargs)
+                    await asyncio.to_thread(
+                        chat_graph.update_state,
+                        config=RunnableConfig(configurable={"thread_id": full_session_id}),
+                        values={
+                            "messages": [user_message, partial_ai],
+                            "context": context,
+                            "notebook": notebook,
+                            "model_override": effective_model_override,
+                        },
+                    )
+                    await session.save()
+                    logger.info(f"Persisted partial notebook chat message ({len(partial_content)} chars) for session {full_session_id}")
+                except Exception as save_err:
+                    logger.error(f"Error persisting partial notebook chat stream: {save_err}")
+
+    except Exception as e:
+        from open_notebook.utils.error_classifier import classify_error
+
+        _, error_message = classify_error(e)
+        logger.error(f"Error in chat streaming: {str(e)}\n{traceback.format_exc()}")
+        error_event = {"type": "error", "message": error_message}
+        yield f"data: {json.dumps(error_event)}\n\n"
+
+
+@router.post("/chat/stream")
+async def stream_chat(request: ExecuteChatRequest):
+    """Stream notebook chat response token-by-token with thinking via Server-Sent Events (SSE)."""
+    return StreamingResponse(
+        stream_chat_response(
+            session_id=request.session_id,
+            message=request.message,
+            context=request.context,
+            model_override=request.model_override,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/chat/context", response_model=BuildContextResponse)

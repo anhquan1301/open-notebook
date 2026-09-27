@@ -6,6 +6,7 @@ import {
   computeNoteSelections,
   computeSourceSelections,
   includedMode,
+  invertSourceSelections,
 } from './source-context'
 
 const src = (id: string, insights_count = 0) => ({ id, insights_count })
@@ -118,6 +119,22 @@ describe('applyBulkSourceContext', () => {
       'full',
     )
     expect(result).toEqual({ 's:1': 'full', 's:2': 'full' })
+  })
+})
+
+describe('invertSourceSelections', () => {
+  it('inverts included to off and off to included', () => {
+    const existing = {
+      's:1': 'full' as const,
+      's:2': 'off' as const,
+    }
+    const sources = [src('s:1', 0), src('s:2', 3), src('s:3', 0)]
+    const result = invertSourceSelections(existing, sources)
+    expect(result).toEqual({
+      's:1': 'off',
+      's:2': 'insights',
+      's:3': 'off',
+    })
   })
 })
 

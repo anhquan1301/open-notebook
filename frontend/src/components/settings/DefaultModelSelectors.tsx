@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Loader2, X, AlertCircle, Wand2 } from 'lucide-react'
 import { useTranslation } from '@/lib/hooks/use-translation'
@@ -14,8 +15,10 @@ import { Model, ModelDefaults } from '@/lib/types/models'
 import { ModelType } from '@/lib/providers'
 import { EmbeddingModelChangeDialog } from './EmbeddingModelChangeDialog'
 
+type ModelDefaultKey = Exclude<keyof ModelDefaults, 'chat_max_tokens'>
+
 interface DefaultConfig {
-  key: keyof ModelDefaults
+  key: ModelDefaultKey
   label: string
   description: string
   modelType: ModelType
@@ -32,7 +35,7 @@ interface DefaultModelSelectProps {
   config: DefaultConfig
   available: Model[]
   currentValue?: string
-  onChange: (key: keyof ModelDefaults, value: string) => void
+  onChange: (key: ModelDefaultKey, value: string) => void
   showDescription?: boolean
   /** Name of the currently selected chat model, used for the fallback hint. */
   chatModelName?: string
@@ -161,7 +164,7 @@ export function DefaultModelSelectors({
 
   const defaultConfigs = [...primaryConfigs, ...advancedConfigs]
 
-  const handleChange = (key: keyof ModelDefaults, value: string) => {
+  const handleChange = (key: ModelDefaultKey, value: string) => {
     if (key === 'default_embedding_model') {
       const current = defaults[key]
       if (current && current !== value) {
@@ -225,29 +228,70 @@ export function DefaultModelSelectors({
               key={config.key}
               config={config}
               available={getModelsForType(config.modelType)}
-              currentValue={watch(config.key) || undefined}
+              currentValue={(watch(config.key) as string) || undefined}
               onChange={handleChange}
               chatModelName={chatModelName}
             />
           ))}
         </div>
 
-        {/* Advanced models: Transformation, Tools, Large Context */}
+        {/* Advanced models: Transformation, Tools, Large Context & Max Tokens */}
         <div className="border-t pt-3">
           <p className="text-xs text-muted-foreground mb-3">{t('navigation.advanced')}</p>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {advancedConfigs.map(config => (
-                <DefaultModelSelect
-                  key={config.key}
-                  config={config}
-                  available={getModelsForType(config.modelType)}
-                  currentValue={watch(config.key) || undefined}
-                  onChange={handleChange}
-                  showDescription
-                  chatModelName={chatModelName}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {advancedConfigs.map(config => (
+              <DefaultModelSelect
+                key={config.key}
+                config={config}
+                available={getModelsForType(config.modelType)}
+                currentValue={(watch(config.key) as string) || undefined}
+                onChange={handleChange}
+                showDescription
+                chatModelName={chatModelName}
+              />
+            ))}
+            <div className="space-y-1">
+              <Label htmlFor={`${generatedId}-chat-tokens`} className="text-xs">
+                {t('models.chatMaxTokensLabel')}
+              </Label>
+              <div className="flex gap-1">
+                <Input
+                  id={`${generatedId}-chat-tokens`}
+                  type="number"
+                  min={1024}
+                  max={131072}
+                  step={1024}
+                  placeholder="8192"
+                  value={watch('chat_max_tokens') ?? ''}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim()
+                    const num = raw ? parseInt(raw, 10) : null
+                    const val = num && !isNaN(num) ? num : null
+                    setValue('chat_max_tokens', val)
+                    updateDefaults.mutate({ chat_max_tokens: val })
+                  }}
+                  className="h-8 text-xs"
                 />
-              ))}
+                {watch('chat_max_tokens') != null && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setValue('chat_max_tokens', null)
+                      updateDefaults.mutate({ chat_max_tokens: null })
+                    }}
+                    className="h-8 w-8 shrink-0"
+                    title={t('common.cancel')}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-tight">
+                {t('models.chatMaxTokensDesc')}
+              </p>
             </div>
+          </div>
         </div>
       </CardContent>
 

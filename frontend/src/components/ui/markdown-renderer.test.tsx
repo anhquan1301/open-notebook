@@ -31,4 +31,15 @@ describe('MarkdownRenderer', () => {
     expect(container.querySelector('code')?.textContent).toBe('npm ci')
     expect(container.querySelectorAll('span[class*="token"]').length).toBe(0)
   })
+
+  it('renders images with alt text caption', () => {
+    const { container } = render(
+      <MarkdownRenderer>{'![Example caption](https://example.com/test.png)'}</MarkdownRenderer>
+    )
+    const img = container.querySelector('img')
+    expect(img).not.toBeNull()
+    expect(img?.getAttribute('src')).toBe('https://example.com/test.png')
+    expect(img?.getAttribute('alt')).toBe('Example caption')
+    expect(container.textContent).toContain('Example caption')
+  })
 })

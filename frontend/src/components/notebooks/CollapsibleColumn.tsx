@@ -59,7 +59,7 @@ export function CollapsibleColumn({
   }
 
   return (
-    <div className="h-full min-h-0 transition-all duration-150">
+    <div className="w-full flex-1 h-full min-h-0 transition-all duration-150 flex flex-col">
       {children}
     </div>
   )

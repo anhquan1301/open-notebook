@@ -60,31 +60,31 @@ export function MarkdownRenderer({ children, components = {}}: { children: React
   const isDark = getEffectiveTheme() === 'dark'
 
   return (
-    <div className="prose prose-sm prose-neutral dark:prose-invert max-w-none break-words prose-headings:font-semibold prose-a:text-primary prose-a:break-all prose-code:before:content-none prose-code:after:content-none prose-pre:p-0 prose-pre:bg-transparent prose-p:mb-4 prose-p:leading-7 prose-li:mb-2">
+    <div className="prose prose-neutral dark:prose-invert max-w-none break-words text-xs leading-relaxed text-foreground prose-headings:font-semibold prose-a:text-primary prose-a:break-all prose-code:before:content-none prose-code:after:content-none prose-pre:p-0 prose-pre:bg-transparent">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkMath]}
           rehypePlugins={[rehypeKatex]}
           components={{...{
-            p: ({ children }) => <p className="mb-4">{children}</p>,
-            h1: ({ children }) => <h1 className="mb-4 mt-6">{children}</h1>,
-            h2: ({ children }) => <h2 className="mb-3 mt-5">{children}</h2>,
-            h3: ({ children }) => <h3 className="mb-3 mt-4">{children}</h3>,
-            h4: ({ children }) => <h4 className="mb-2 mt-4">{children}</h4>,
-            h5: ({ children }) => <h5 className="mb-2 mt-3">{children}</h5>,
-            h6: ({ children }) => <h6 className="mb-2 mt-3">{children}</h6>,
-            li: ({ children }) => <li className="mb-1">{children}</li>,
-            ul: ({ children }) => <ul className="mb-4 space-y-1">{children}</ul>,
-            ol: ({ children }) => <ol className="mb-4 space-y-1">{children}</ol>,
+            p: ({ children }) => <p className="mb-2 leading-relaxed text-xs">{children}</p>,
+            h1: ({ children }) => <h1 className="text-sm font-bold mb-2 mt-2.5 text-foreground leading-snug">{children}</h1>,
+            h2: ({ children }) => <h2 className="text-xs font-bold mb-1.5 mt-2 text-foreground leading-snug">{children}</h2>,
+            h3: ({ children }) => <h3 className="text-xs font-semibold mb-1 mt-1.5 text-foreground leading-snug">{children}</h3>,
+            h4: ({ children }) => <h4 className="text-xs font-semibold mb-1 mt-1 text-foreground">{children}</h4>,
+            h5: ({ children }) => <h5 className="text-xs font-semibold mb-1 mt-1 text-foreground">{children}</h5>,
+            h6: ({ children }) => <h6 className="text-xs font-semibold mb-1 mt-1 text-foreground">{children}</h6>,
+            li: ({ children }) => <li className="mb-0.5 text-xs leading-relaxed">{children}</li>,
+            ul: ({ children }) => <ul className="mb-2 space-y-0.5 list-disc pl-4 text-xs">{children}</ul>,
+            ol: ({ children }) => <ol className="mb-2 space-y-0.5 list-decimal pl-4 text-xs">{children}</ol>,
             table: ({ children }) => (
-              <div className="my-4 overflow-x-auto">
-                <table className="min-w-full border-collapse border border-border">{children}</table>
+              <div className="my-2 overflow-x-auto w-full max-w-full rounded-md border border-border/70">
+                <table className="w-full min-w-full border-collapse text-xs">{children}</table>
               </div>
             ),
-            thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
-            tbody: ({ children }) => <tbody>{children}</tbody>,
-            tr: ({ children }) => <tr className="border-b border-border">{children}</tr>,
-            th: ({ children }) => <th className="border border-border px-3 py-2 text-left font-semibold">{children}</th>,
-            td: ({ children }) => <td className="border border-border px-3 py-2">{children}</td>,
+            thead: ({ children }) => <thead className="bg-muted/60 text-muted-foreground">{children}</thead>,
+            tbody: ({ children }) => <tbody className="divide-y divide-border/60">{children}</tbody>,
+            tr: ({ children }) => <tr className="border-b border-border/60 hover:bg-muted/20 transition-colors">{children}</tr>,
+            th: ({ children }) => <th className="border border-border/60 px-2.5 py-1.5 text-left font-semibold whitespace-nowrap text-xs text-foreground">{children}</th>,
+            td: ({ children }) => <td className="border border-border/60 px-2.5 py-1.5 align-top leading-snug text-xs break-words min-w-[80px]">{children}</td>,
             code: ({ children, className }) => {
               const match = /language-(\w+)/.exec(className || '')
               const isBlock = match || String(children).includes('\n')
@@ -93,14 +93,48 @@ export function MarkdownRenderer({ children, components = {}}: { children: React
                   language={match ? match[1] : 'text'}
                   style={isDark ? darkTheme : lightTheme}
                   PreTag="div"
-                  className="text-sm border border-border"
+                  className="text-xs border border-border/70 rounded-md my-2"
                 >
                   {String(children)}
                 </SyntaxHighlighter>
               ) : (
-                <code className="bg-border rounded px-1 py-0.5">{children}</code>
+                <code className="bg-muted border border-border/50 rounded px-1.5 py-0.5 text-[11px] font-mono">{children}</code>
               )
             },
+            a: ({ children, href, ...props }) => {
+              if (href === '#citation-target') {
+                return (
+                  <mark
+                    id="citation-highlight"
+                    className="bg-amber-200 text-amber-950 dark:bg-amber-900/80 dark:text-amber-100 px-1 py-0.5 rounded font-semibold ring-2 ring-amber-400 shadow-sm animate-pulse inline"
+                  >
+                    {children}
+                  </mark>
+                )
+              }
+              return (
+                <a href={href} target="_blank" rel="noopener noreferrer" {...props} className="text-primary hover:underline">
+                  {children}
+                </a>
+              )
+            },
+            img: ({ src, alt, ...props }) => (
+              <span className="block my-2.5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={src}
+                  alt={alt || ''}
+                  loading="lazy"
+                  className="max-h-96 max-w-full rounded-md border border-border/60 object-contain shadow-sm bg-muted/20"
+                  {...props}
+                />
+                {alt ? (
+                  <span className="block text-[11px] text-muted-foreground mt-1 italic">
+                    {alt}
+                  </span>
+                ) : null}
+              </span>
+            ),
           }, ...components}}
         >
           {String(children)}

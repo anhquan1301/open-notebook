@@ -86,6 +86,24 @@ export function applyBulkSourceContext(
   return next
 }
 
+/**
+ * Invert context inclusion for sources:
+ * - If currently included ('full' | 'insights') → set to 'off'
+ * - If currently excluded ('off') → set to included (insights if available, else full)
+ */
+export function invertSourceSelections(
+  existing: Record<string, ContextMode>,
+  sources: SourceLike[],
+): Record<string, ContextMode> {
+  const next = { ...existing }
+  for (const source of sources) {
+    const current = next[source.id]
+    const isIncluded = current !== undefined ? current !== 'off' : true
+    next[source.id] = isIncluded ? 'off' : includedMode(source.insights_count)
+  }
+  return next
+}
+
 // ---------------------------------------------------------------------------
 // Notes
 //

@@ -28,6 +28,7 @@ from .encryption import (
 )
 from .model_utils import full_model_dump
 from .text_utils import (
+    clean_markdown_content,
     clean_thinking_content,
     parse_thinking_content,
     remove_non_ascii,
@@ -53,6 +54,7 @@ __all__ = [
     "generate_embeddings",
     "mean_pool_embeddings",
     # Text utils
+    "clean_markdown_content",
     "remove_non_ascii",
     "remove_non_printable",
     "parse_thinking_content",

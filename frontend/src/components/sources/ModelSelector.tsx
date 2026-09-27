@@ -88,9 +88,9 @@ export function ModelSelector({
           variant="outline" 
           size="sm"
           disabled={disabled}
-          className="gap-2"
+          className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
         >
-          <Settings2 className="h-4 w-4" />
+          <Settings2 className="h-3.5 w-3.5" />
           <span className="text-xs">
             {currentModelName}
           </span>

@@ -15,7 +15,13 @@ from open_notebook.domain.content_settings import ContentSettings
 from open_notebook.domain.notebook import Asset, Source
 from open_notebook.domain.transformation import Transformation
 from open_notebook.graphs.transformation import graph as transform_graph
+from open_notebook.utils.document_ocr import (
+    extract_document_content_hybrid,
+    is_document_with_images_supported,
+)
+from open_notebook.utils.ocr_service import extract_image_content, is_image_file
 from open_notebook.utils.runtime_capabilities import engine_runtime_missing
+from open_notebook.utils.text_utils import clean_markdown_content
 
 # Default preferred languages for YouTube transcript selection, used when
 # ContentSettings.youtube_preferred_languages is unset. content-core's own
@@ -148,12 +154,44 @@ async def content_process(state: SourceState) -> dict:
         f"docling_vision={config_kwargs.get('docling_vision', 'auto')})"
     )
 
-    processed = await extract_content(
-        url=content_state.get("url"),
-        file_path=content_state.get("file_path"),
-        content=content_state.get("content"),
-        config=config,
-    )
+    file_path = content_state.get("file_path")
+    if file_path and is_image_file(file_path):
+        logger.info(f"Extracting image content via OCR/Vision service: {file_path}")
+        extracted_text = await extract_image_content(file_path)
+        processed = ExtractionOutput(
+            content=extracted_text,
+            title=os.path.basename(file_path),
+        )
+    elif file_path and is_document_with_images_supported(file_path):
+        logger.info(
+            f"Extracting document with embedded images & OCR: {file_path}"
+        )
+        try:
+            doc_content = await extract_document_content_hybrid(file_path)
+            processed = ExtractionOutput(
+                content=doc_content,
+                title=os.path.basename(file_path),
+            )
+        except ValueError:
+            # Re-raise explicit user-facing errors (e.g. password protected files)
+            raise
+        except Exception as e:
+            logger.warning(
+                f"Embedded image document extraction failed ({e}), falling back to content-core: {file_path}"
+            )
+            processed = await extract_content(
+                url=content_state.get("url"),
+                file_path=file_path,
+                content=content_state.get("content"),
+                config=config,
+            )
+    else:
+        processed = await extract_content(
+            url=content_state.get("url"),
+            file_path=file_path,
+            content=content_state.get("content"),
+            config=config,
+        )
 
     # content-core signals a soft extraction failure (e.g. an unreachable or
     # invalid URL, via the bs4 fallback) by returning title="Error" and content
@@ -182,6 +220,10 @@ async def content_process(state: SourceState) -> dict:
             "Could not extract any text content from this source. "
             "The content may be empty, inaccessible, or in an unsupported format."
         )
+
+    # Clean bloated markdown tables and remove empty rows (e.g. from Excel exports)
+    if processed.content:
+        processed.content = clean_markdown_content(processed.content)
 
     # content-core 2.x no longer deletes the uploaded source file after
     # extraction (the delete_source flag it used to honor is gone). Preserve the

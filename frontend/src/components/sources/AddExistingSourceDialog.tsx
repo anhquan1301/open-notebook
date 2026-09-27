@@ -136,6 +136,11 @@ export function AddExistingSourceDialog({
     performSearch()
   }, [debouncedSearchQuery, allSources, performSearch])
 
+  const selectableSources = useMemo(
+    () => filteredSources.filter(s => !currentSourceIds.has(s.id)),
+    [filteredSources, currentSourceIds]
+  )
+
   const handleToggleSource = (sourceId: string) => {
     setSelectedSourceIds(prev =>
       prev.includes(sourceId)
@@ -210,6 +215,39 @@ export function AddExistingSourceDialog({
               <LoaderIcon className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
             )}
           </div>
+
+          {/* Select all / Deselect all toolbar */}
+          {selectableSources.length > 0 && (
+            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+              <span>
+                {t('sources.selectedSourcesCount', {
+                  count: selectedSourceIds.length,
+                  total: selectableSources.length,
+                })}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs px-2"
+                  onClick={() => setSelectedSourceIds(selectableSources.map(s => s.id))}
+                >
+                  {t('sources.selectAllSources')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs px-2"
+                  onClick={() => setSelectedSourceIds([])}
+                  disabled={selectedSourceIds.length === 0}
+                >
+                  {t('sources.deselectAll')}
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Source List */}
           <ScrollArea className="h-[400px] border rounded-md">

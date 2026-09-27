@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
+import { SourceContentViewer } from '@/components/sources/SourceContentViewer'
 import { sourcesApi } from '@/lib/api/sources'
 import { QUERY_KEYS } from '@/lib/api/query-client'
 import { useSource, useUpdateSource, useDeleteSource } from '@/lib/hooks/use-sources'
@@ -73,6 +73,8 @@ interface SourceDetailContentProps {
   showChatButton?: boolean
   onChatClick?: () => void
   onClose?: () => void
+  highlightText?: string
+  onClearHighlight?: () => void
 }
 
 const safeExternalHref = (url: string | null | undefined): string | null => {
@@ -98,7 +100,9 @@ function SourceDetailContentInner({
   sourceId,
   showChatButton = false,
   onChatClick,
-  onClose
+  onClose,
+  highlightText,
+  onClearHighlight
 }: SourceDetailContentProps) {
   const { t, language } = useTranslation()
   const queryClient = useQueryClient()
@@ -535,9 +539,15 @@ function SourceDetailContentInner({
                   )}
                 </div>
               )}
-              <MarkdownRenderer>
-                {source.full_text || t('sources.noContent')}
-              </MarkdownRenderer>
+              <SourceContentViewer
+                content={source.full_text || ''}
+                filePath={source.asset?.file_path}
+                sourceId={source.id}
+                onDownload={handleDownloadFile}
+                isDownloading={isDownloadingFile}
+                highlightText={highlightText}
+                onClearHighlight={onClearHighlight}
+              />
             </section>
           </TabsContent>
 

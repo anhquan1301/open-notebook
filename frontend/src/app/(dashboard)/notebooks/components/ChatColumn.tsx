@@ -10,6 +10,7 @@ import { AlertCircle } from 'lucide-react'
 import { ContextSelections } from '../[id]/page'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { SourceListResponse } from '@/lib/types/api'
+import { useNotebookColumnsStore } from '@/lib/stores/notebook-columns-store'
 
 interface ChatColumnProps {
   notebookId: string
@@ -20,6 +21,7 @@ interface ChatColumnProps {
 
 export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoading }: ChatColumnProps) {
   const { t } = useTranslation()
+  const { chatMaximized, toggleChatMaximized } = useNotebookColumnsStore()
 
   // Fetch notes for this notebook
   const { data: notes = [], isLoading: notesLoading } = useNotes(notebookId)
@@ -99,6 +101,7 @@ export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoad
       isStreaming={chat.isSending}
       contextIndicators={null}
       onSendMessage={(message, modelOverride) => chat.sendMessage(message, modelOverride)}
+      onCancel={chat.cancelStreaming}
       modelOverride={chat.currentSession?.model_override ?? chat.pendingModelOverride ?? undefined}
       onModelChange={(model) => chat.setModelOverride(model ?? null)}
       sessions={chat.sessions}
@@ -110,6 +113,8 @@ export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoad
       loadingSessions={chat.loadingSessions}
       notebookContextStats={contextStats}
       notebookId={notebookId}
+      isMaximized={chatMaximized}
+      onToggleMaximize={toggleChatMaximized}
     />
   )
 }

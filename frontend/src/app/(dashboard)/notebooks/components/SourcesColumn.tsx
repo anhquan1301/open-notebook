@@ -10,9 +10,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Plus, FileText, Link2, ChevronDown, Loader2, ListChecks } from 'lucide-react'
+import { Plus, FileText, Link2, ChevronDown, Loader2, ArrowLeftRight, SlidersHorizontal } from 'lucide-react'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { EmptyState } from '@/components/common/EmptyState'
+import { Checkbox } from '@/components/ui/checkbox'
 import { AddSourceDialog } from '@/components/sources/AddSourceDialog'
 import { AddExistingSourceDialog } from '@/components/sources/AddExistingSourceDialog'
 import { SourceCard } from '@/components/sources/SourceCard'
@@ -21,6 +22,7 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { useModalManager } from '@/lib/hooks/use-modal-manager'
 import { ContextMode } from '../[id]/page'
 import type { SourceBulkAction } from '@/lib/utils/source-context'
+import { invertSourceSelections } from '@/lib/utils/source-context'
 import { CollapsibleColumn, createCollapseButton } from '@/components/notebooks/CollapsibleColumn'
 import { useNotebookColumnsStore } from '@/lib/stores/notebook-columns-store'
 import { useTranslation } from '@/lib/hooks/use-translation'
@@ -34,6 +36,7 @@ interface SourcesColumnProps {
   contextSelections?: Record<string, ContextMode>
   onContextModeChange?: (sourceId: string, mode: ContextMode) => void
   onBulkContextModeChange?: (action: SourceBulkAction) => void
+  onBatchContextModeChange?: (updates: Record<string, ContextMode>) => void
   // Pagination props
   hasNextPage?: boolean
   isFetchingNextPage?: boolean
@@ -48,11 +51,40 @@ export function SourcesColumn({
   contextSelections,
   onContextModeChange,
   onBulkContextModeChange,
+  onBatchContextModeChange,
   hasNextPage,
   isFetchingNextPage,
   fetchNextPage,
 }: SourcesColumnProps) {
   const { t } = useTranslation()
+
+  const totalSources = sources?.length ?? 0
+  const selectedCount = useMemo(() => {
+    if (!sources || !contextSelections) return 0
+    return sources.filter((s) => contextSelections[s.id] && contextSelections[s.id] !== 'off').length
+  }, [sources, contextSelections])
+
+  const isAllSelected = totalSources > 0 && selectedCount === totalSources
+  const isSomeSelected = selectedCount > 0 && selectedCount < totalSources
+
+  const handleMasterCheckboxChange = () => {
+    if (!onBulkContextModeChange) return
+    if (isAllSelected || isSomeSelected) {
+      onBulkContextModeChange('exclude')
+    } else {
+      onBulkContextModeChange('full')
+    }
+  }
+
+  const handleInvertSelection = () => {
+    if (!sources) return
+    const inverted = invertSourceSelections(contextSelections || {}, sources)
+    if (onBatchContextModeChange) {
+      onBatchContextModeChange(inverted)
+    } else if (onContextModeChange) {
+      Object.entries(inverted).forEach(([id, mode]) => onContextModeChange(id, mode))
+    }
+  }
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addExistingDialogOpen, setAddExistingDialogOpen] = useState(false)
@@ -164,27 +196,6 @@ export function SourcesColumn({
                 {t('navigation.sources')}
               </CardTitle>
               <div className="flex items-center gap-2">
-                {onBulkContextModeChange && sources && sources.length > 0 && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="text-muted-foreground" title={t('sources.bulkContext')}>
-                        <ListChecks className="h-4 w-4" />
-                        <ChevronDown className="h-4 w-4 ml-1" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => onBulkContextModeChange('insights')}>
-                        {t('sources.includeAllInsights')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onBulkContextModeChange('full')}>
-                        {t('sources.includeAllFull')}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onBulkContextModeChange('exclude')}>
-                        {t('sources.excludeAllFromContext')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
                 <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
                   <DropdownMenuTrigger asChild>
                     <Button size="sm">
@@ -208,6 +219,65 @@ export function SourcesColumn({
               </div>
             </div>
           </CardHeader>
+
+          {sources && sources.length > 0 && (
+            <div className="px-4 py-2 border-b bg-muted/20 flex items-center justify-between gap-2 text-xs flex-shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Checkbox
+                  id="master-sources-checkbox"
+                  checked={isAllSelected ? true : isSomeSelected ? 'indeterminate' : false}
+                  onCheckedChange={handleMasterCheckboxChange}
+                  aria-label={t('sources.selectAllSources')}
+                />
+                <label
+                  htmlFor="master-sources-checkbox"
+                  className="font-medium text-muted-foreground cursor-pointer select-none truncate"
+                >
+                  {t('sources.selectedSourcesCount', {
+                    count: selectedCount,
+                    total: totalSources,
+                  })}
+                </label>
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={handleInvertSelection}
+                  title={t('sources.invertSelection')}
+                >
+                  <ArrowLeftRight className="h-3.5 w-3.5 mr-1" />
+                  <span>{t('sources.invert')}</span>
+                </Button>
+                {onBulkContextModeChange && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                        title={t('sources.bulkContext')}
+                      >
+                        <SlidersHorizontal className="h-3.5 w-3.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => onBulkContextModeChange('full')}>
+                        {t('sources.includeAllFull')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onBulkContextModeChange('insights')}>
+                        {t('sources.includeAllInsights')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onBulkContextModeChange('exclude')}>
+                        {t('sources.excludeAllFromContext')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </div>
+            </div>
+          )}
 
           <CardContent ref={scrollContainerRef} className="flex-1 overflow-y-auto min-h-0">
             {isLoading ? (

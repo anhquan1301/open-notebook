@@ -41,6 +41,13 @@ class ContentSettings(RecordModel):
             "vision model."
         ),
     )
+    vision_ocr: Optional[bool] = Field(
+        True,
+        description=(
+            "Use Vision AI (multimodal model) for OCR on embedded images and slides. "
+            "When disabled, fast local OCR (RapidOCR) is used directly on CPU."
+        ),
+    )
     youtube_preferred_languages: Optional[List[str]] = Field(
         ["en", "pt", "es", "de", "nl", "en-GB", "fr", "hi", "ja", "zh-CN", "zh-TW"],
         description="Preferred languages for YouTube transcripts",

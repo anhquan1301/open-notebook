@@ -1,0 +1,1 @@
+UPDATE open_notebook:content_settings UNSET vision_ocr;

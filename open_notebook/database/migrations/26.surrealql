@@ -1,0 +1,3 @@
+-- Migration 26: Add vision_ocr toggle to ContentSettings
+-- Controls whether Vision AI is used for OCR or fast local RapidOCR directly.
+UPDATE open_notebook:content_settings SET vision_ocr = true WHERE vision_ocr = NONE;

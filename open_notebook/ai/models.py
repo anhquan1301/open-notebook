@@ -170,6 +170,7 @@ class DefaultModels(RecordModel):
     # default_vision_model: Optional[str]
     default_embedding_model: Optional[str] = None
     default_tools_model: Optional[str] = None
+    chat_max_tokens: Optional[int] = None
 
     @classmethod
     async def get_instance(cls) -> "DefaultModels":

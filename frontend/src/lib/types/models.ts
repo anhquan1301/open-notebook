@@ -23,6 +23,7 @@ export interface ModelDefaults {
   default_speech_to_text_model?: string | null
   default_embedding_model?: string | null
   default_tools_model?: string | null
+  chat_max_tokens?: number | null
 }
 
 export interface ProviderAvailability {

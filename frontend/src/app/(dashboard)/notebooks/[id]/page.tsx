@@ -12,7 +12,6 @@ import { useNotebookSources } from '@/lib/hooks/use-sources'
 import { useNotes } from '@/lib/hooks/use-notes'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { useNotebookColumnsStore } from '@/lib/stores/notebook-columns-store'
-import { useIsDesktop } from '@/lib/hooks/use-media-query'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { cn } from '@/lib/utils'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -51,10 +50,7 @@ export default function NotebookPage() {
   const { data: notes, isLoading: notesLoading } = useNotes(notebookId)
 
   // Get collapse states for dynamic layout
-  const { sourcesCollapsed, notesCollapsed } = useNotebookColumnsStore()
-
-  // Detect desktop to avoid double-mounting ChatColumn
-  const isDesktop = useIsDesktop()
+  const { sourcesCollapsed, notesCollapsed, chatMaximized } = useNotebookColumnsStore()
 
   // Mobile tab state (Sources, Notes, or Chat)
   const [mobileActiveTab, setMobileActiveTab] = useState<'sources' | 'notes' | 'chat'>('chat')
@@ -123,6 +119,17 @@ export default function NotebookPage() {
     }))
   }
 
+  // Batch-apply specific context modes to sources (e.g. for invert selection)
+  const handleBatchSourceContext = (updates: Record<string, ContextMode>) => {
+    setContextSelections(prev => ({
+      ...prev,
+      sources: {
+        ...prev.sources,
+        ...updates,
+      },
+    }))
+  }
+
   // Bulk include/exclude every note from the chat context at once (#223).
   const handleBulkNoteContext = (action: NoteContextDefault) => {
     setNoteContextDefault(action)
@@ -158,77 +165,35 @@ export default function NotebookPage() {
           <NotebookHeader notebook={notebook} />
         </div>
 
-        <div className="flex-1 p-6 pt-6 overflow-x-auto flex flex-col">
-          {/* Mobile: Tabbed interface - only render on mobile to avoid double-mounting */}
-          {!isDesktop && (
-            <>
-              <div className="lg:hidden mb-4">
-                <Tabs value={mobileActiveTab} onValueChange={(value) => setMobileActiveTab(value as 'sources' | 'notes' | 'chat')}>
-                  <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="sources" className="gap-2">
-                      <FileText className="h-4 w-4" />
-                      {t('navigation.sources')}
-                    </TabsTrigger>
-                    <TabsTrigger value="notes" className="gap-2">
-                      <StickyNote className="h-4 w-4" />
-                      {t('common.notes')}
-                    </TabsTrigger>
-                    <TabsTrigger value="chat" className="gap-2">
-                      <MessageSquare className="h-4 w-4" />
-                      {t('common.chat')}
-                    </TabsTrigger>
-                  </TabsList>
-                </Tabs>
-              </div>
+        <div className="flex-1 p-6 pt-6 overflow-x-auto flex flex-col min-h-0">
+          {/* Mobile: Tabbed interface header (visible only on screens < 1024px) */}
+          <div className="lg:hidden mb-4 flex-shrink-0">
+            <Tabs value={mobileActiveTab} onValueChange={(value) => setMobileActiveTab(value as 'sources' | 'notes' | 'chat')}>
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="sources" className="gap-2">
+                  <FileText className="h-4 w-4" />
+                  {t('navigation.sources')}
+                </TabsTrigger>
+                <TabsTrigger value="notes" className="gap-2">
+                  <StickyNote className="h-4 w-4" />
+                  {t('common.notes')}
+                </TabsTrigger>
+                <TabsTrigger value="chat" className="gap-2">
+                  <MessageSquare className="h-4 w-4" />
+                  {t('common.chat')}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
 
-              {/* Mobile: Show only active tab */}
-              <div className="flex-1 overflow-hidden lg:hidden">
-                {mobileActiveTab === 'sources' && (
-                  <SourcesColumn
-                    sources={sources}
-                    isLoading={sourcesLoading}
-                    notebookId={notebookId}
-                    notebookName={notebook?.name}
-                    onRefresh={refetchSources}
-                    contextSelections={contextSelections.sources}
-                    onContextModeChange={handleSourceContextModeChange}
-                    onBulkContextModeChange={handleBulkSourceContext}
-                    hasNextPage={hasNextPage}
-                    isFetchingNextPage={isFetchingNextPage}
-                    fetchNextPage={fetchNextPage}
-                  />
-                )}
-                {mobileActiveTab === 'notes' && (
-                  <NotesColumn
-                    notes={notes}
-                    isLoading={notesLoading}
-                    notebookId={notebookId}
-                    contextSelections={contextSelections.notes}
-                    onContextModeChange={handleNoteContextModeChange}
-                    onBulkContextModeChange={handleBulkNoteContext}
-                  />
-                )}
-                {mobileActiveTab === 'chat' && (
-                  <ChatColumn
-                    notebookId={notebookId}
-                    contextSelections={contextSelections}
-                    sources={sources}
-                    sourcesLoading={sourcesLoading}
-                  />
-                )}
-              </div>
-            </>
-          )}
-
-          {/* Desktop: Collapsible columns layout */}
-          <div className={cn(
-            'hidden lg:flex h-full min-h-0 gap-6 transition-all duration-150',
-            'flex-row'
-          )}>
+          {/* Unified Columns layout: Single mounted instance of all 3 columns across mobile and desktop */}
+          <div className="flex-1 flex flex-col lg:flex-row h-full min-h-0 lg:gap-6 transition-all duration-150">
             {/* Sources Column */}
             <div className={cn(
-              'transition-all duration-150',
-              sourcesCollapsed ? 'w-12 flex-shrink-0' : 'flex-none basis-1/3'
+              'h-full min-h-0 transition-all duration-150 flex-col',
+              mobileActiveTab === 'sources' ? 'flex flex-1' : 'hidden',
+              chatMaximized ? 'lg:hidden' : 'lg:flex',
+              sourcesCollapsed ? 'lg:w-12 lg:flex-shrink-0' : 'lg:flex-none lg:basis-1/3'
             )}>
               <SourcesColumn
                 sources={sources}
@@ -239,6 +204,7 @@ export default function NotebookPage() {
                 contextSelections={contextSelections.sources}
                 onContextModeChange={handleSourceContextModeChange}
                 onBulkContextModeChange={handleBulkSourceContext}
+                onBatchContextModeChange={handleBatchSourceContext}
                 hasNextPage={hasNextPage}
                 isFetchingNextPage={isFetchingNextPage}
                 fetchNextPage={fetchNextPage}
@@ -247,8 +213,10 @@ export default function NotebookPage() {
 
             {/* Notes Column */}
             <div className={cn(
-              'transition-all duration-150',
-              notesCollapsed ? 'w-12 flex-shrink-0' : 'flex-none basis-1/3'
+              'h-full min-h-0 transition-all duration-150 flex-col',
+              mobileActiveTab === 'notes' ? 'flex flex-1' : 'hidden',
+              chatMaximized ? 'lg:hidden' : 'lg:flex',
+              notesCollapsed ? 'lg:w-12 lg:flex-shrink-0' : 'lg:flex-none lg:basis-1/3'
             )}>
               <NotesColumn
                 notes={notes}
@@ -260,8 +228,13 @@ export default function NotebookPage() {
               />
             </div>
 
-            {/* Chat Column - always expanded, takes remaining space */}
-            <div className="transition-all duration-150 flex-1 min-w-0 lg:pr-6 lg:-mr-6">
+            {/* Chat Column - always persistent, never unmounted on resize or mobile tab change */}
+            <div className={cn(
+              'h-full min-h-0 transition-all duration-150 min-w-0 flex-col',
+              mobileActiveTab === 'chat' ? 'flex flex-1' : 'hidden',
+              'lg:flex',
+              chatMaximized ? 'lg:flex-1 lg:w-full' : 'lg:flex-1 lg:pr-6 lg:-mr-6'
+            )}>
               <ChatColumn
                 notebookId={notebookId}
                 contextSelections={contextSelections}

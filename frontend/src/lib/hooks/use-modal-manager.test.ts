@@ -51,7 +51,7 @@ describe('useModalManager', () => {
   })
 
   it('should call router.push when closing a modal', () => {
-    vi.mocked(useSearchParams).mockReturnValue(new URLSearchParams('modal=note&id=123') as any)
+    vi.mocked(useSearchParams).mockReturnValue(new URLSearchParams('modal=note&id=123&highlight=quote') as any)
     const { result } = renderHook(() => useModalManager())
     
     act(() => {
@@ -59,5 +59,27 @@ describe('useModalManager', () => {
     })
     
     expect(pushMock).toHaveBeenCalledWith('/test-path?', { scroll: false })
+  })
+
+  it('should support opening modal with highlight parameter', () => {
+    vi.mocked(useSearchParams).mockReturnValue(new URLSearchParams() as any)
+    const { result } = renderHook(() => useModalManager())
+    
+    act(() => {
+      result.current.openModal('source', 'abc', 'test claim')
+    })
+    
+    expect(pushMock).toHaveBeenCalledWith('/test-path?modal=source&id=abc&highlight=test+claim', { scroll: false })
+  })
+
+  it('should support clearing highlight parameter', () => {
+    vi.mocked(useSearchParams).mockReturnValue(new URLSearchParams('modal=source&id=abc&highlight=test+claim') as any)
+    const { result } = renderHook(() => useModalManager())
+    
+    act(() => {
+      result.current.clearHighlight()
+    })
+    
+    expect(pushMock).toHaveBeenCalledWith('/test-path?modal=source&id=abc', { scroll: false })
   })
 })

@@ -10,6 +10,7 @@ from open_notebook.exceptions import (
     NotFoundError,
     OpenNotebookError,
 )
+from open_notebook.utils.text_utils import clean_markdown_content
 
 router = APIRouter()
 
@@ -81,9 +82,14 @@ async def create_note(note_data: NoteCreate):
                 status_code=400, detail="note_type must be 'human' or 'ai'"
             )
 
+        cleaned_content = (
+            clean_markdown_content(note_data.content)
+            if note_data.content
+            else note_data.content
+        )
         new_note = Note(
             title=title,
-            content=note_data.content,
+            content=cleaned_content,
             note_type=note_type,
         )
         command_id = await new_note.save()
@@ -153,7 +159,7 @@ async def update_note(note_id: str, note_update: NoteUpdate):
         if note_update.title is not None:
             note.title = note_update.title
         if note_update.content is not None:
-            note.content = note_update.content
+            note.content = clean_markdown_content(note_update.content)
         if note_update.note_type is not None:
             if note_update.note_type in ("human", "ai"):
                 note.note_type = note_update.note_type  # type: ignore[assignment]

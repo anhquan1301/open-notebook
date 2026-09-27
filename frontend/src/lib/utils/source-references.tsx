@@ -29,6 +29,7 @@ export interface ReferenceData {
   number: number
   type: ReferenceType
   id: string
+  claim?: string
 }
 
 /**
@@ -398,8 +399,71 @@ export function convertReferencesToCompactMarkdown(text: string, referencesLabel
       replaceEnd = refEnd + 1
     }
 
-    // Build the numbered citation with full reference in href
-    const citationLink = `[${number}](#ref-${reference.type}-${reference.id})`
+    // Extract claim/sentence preceding the reference for highlight linking
+    let claimText = ''
+    const textBefore = result.substring(0, replaceStart).trimEnd()
+
+    // 1. If reference is immediately preceded by a quote, e.g. "Yêu cầu phải đạt 100%." [source:...],
+    // prioritize the exact text inside the quotes as the most specific citation claim
+    const trailingQuoteMatch = textBefore.match(/["“'«]([^"”'»]{3,250})["”'»]\s*$/)
+    let rawClaim = ''
+
+    if (trailingQuoteMatch) {
+      rawClaim = trailingQuoteMatch[1].trim()
+    } else {
+      const lastPipe = textBefore.lastIndexOf('|')
+      const lastNewline = textBefore.lastIndexOf('\n')
+      // If citation is inside a markdown table cell on the current line, boundary is the cell delimiter (|)
+      const isInsideTableCell = lastPipe !== -1 && (lastNewline === -1 || lastPipe > lastNewline)
+
+      const lastBoundary = Math.max(
+        textBefore.lastIndexOf('. '),
+        textBefore.lastIndexOf('.\n'),
+        textBefore.lastIndexOf('? '),
+        textBefore.lastIndexOf('!\n'),
+        textBefore.lastIndexOf('! '),
+        textBefore.lastIndexOf('\n'),
+        textBefore.lastIndexOf('] '),
+        isInsideTableCell ? lastPipe : -1
+      )
+
+      if (lastBoundary >= 0) {
+        const immediate = textBefore.substring(lastBoundary + 1).trim()
+        // If immediate segment is short and not a table cell, also include the preceding sentence
+        if (immediate.length < 60 && lastBoundary > 0 && !isInsideTableCell) {
+          const prevText = textBefore.substring(0, lastBoundary).trimEnd()
+          const prevBoundary = Math.max(
+            prevText.lastIndexOf('. '),
+            prevText.lastIndexOf('.\n'),
+            prevText.lastIndexOf('\n'),
+            prevText.lastIndexOf('] ')
+          )
+          const prevSentence = prevBoundary >= 0 ? prevText.substring(prevBoundary + 1) : prevText
+          rawClaim = `${prevSentence} ${immediate}`.trim()
+        } else {
+          rawClaim = immediate
+        }
+      } else {
+        rawClaim = textBefore
+      }
+    }
+
+    const cleanedClaim = rawClaim
+      .replace(/[*_`]/g, '')
+      .replace(/^[|"\s“‘`*#]+|[|"\s”’`*#]+$/g, '')
+      .replace(/^[-*•\d.>#\s]+/, '')
+      .trim()
+
+    if (cleanedClaim.length >= 4) {
+      claimText = cleanedClaim.length > 250 ? cleanedClaim.substring(0, 250).trim() : cleanedClaim
+      if (!refData.claim) {
+        refData.claim = claimText
+      }
+    }
+
+    // Build the numbered citation with full reference in href including claim
+    const claimParam = claimText ? `?claim=${encodeURIComponent(claimText)}` : ''
+    const citationLink = `[${number}](#ref-${reference.type}-${reference.id}${claimParam})`
 
     // Replace in the result string
     result = result.substring(0, replaceStart) + citationLink + result.substring(replaceEnd)
@@ -410,7 +474,8 @@ export function convertReferencesToCompactMarkdown(text: string, referencesLabel
 
   // Iterate through reference map in insertion order (Map preserves order)
   for (const [, refData] of referenceMap) {
-    const refListItem = `[${refData.number}] - [${refData.type}:${refData.id}](#ref-${refData.type}-${refData.id})`
+    const claimParam = refData.claim ? `?claim=${encodeURIComponent(refData.claim)}` : ''
+    const refListItem = `[${refData.number}] - [${refData.type}:${refData.id}](#ref-${refData.type}-${refData.id}${claimParam})`
     refListLines.push(refListItem)
   }
 
@@ -428,17 +493,17 @@ export function convertReferencesToCompactMarkdown(text: string, referencesLabel
  * 2. Reference list items: [source:abc123](#ref-source-abc123)
  *
  * Both use the same href format: #ref-{type}-{id}
- * The component extracts the type and id from the href and triggers the click handler.
+ * The component extracts the type, id, and optional claim from the href and triggers the click handler.
  *
- * @param onReferenceClick - Callback for when a reference link is clicked
+ * @param onReferenceClick - Callback for when a reference link is clicked (type, id, highlight)
  * @returns React component for rendering links in ReactMarkdown
  *
  * @example
- * const LinkComponent = createCompactReferenceLinkComponent((type, id) => openModal(type, id))
+ * const LinkComponent = createCompactReferenceLinkComponent((type, id, highlight) => openModal(type, id, highlight))
  * <ReactMarkdown components={{ a: LinkComponent }}>...</ReactMarkdown>
  */
 export function createCompactReferenceLinkComponent(
-  onReferenceClick: (type: ReferenceType, id: string) => void
+  onReferenceClick: (type: ReferenceType, id: string, highlight?: string) => void
 ) {
   const CompactReferenceLinkComponent = ({
     href,
@@ -450,23 +515,42 @@ export function createCompactReferenceLinkComponent(
   }) => {
     // Check if this is a reference link (starts with #ref-)
     if (href?.startsWith('#ref-')) {
-      // Parse: #ref-source-abc123 → type=source, id=abc123
-      const parts = href.substring(5).split('-') // Remove '#ref-'
+      // Parse: #ref-source-abc123?claim=... → type=source, id=abc123, claim=...
+      const rawHref = href.substring(5) // Remove '#ref-'
+      const [refPart, queryPart] = rawHref.split('?')
+      const parts = refPart.split('-')
       const type = parts[0] as ReferenceType
       const id = parts.slice(1).join('-') // Rejoin in case ID has dashes
+      let claim: string | undefined = undefined
+      if (queryPart) {
+        const queryParams = new URLSearchParams(queryPart)
+        claim = queryParams.get('claim') || undefined
+      }
 
       return (
         <button
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            onReferenceClick(type, id)
+            onReferenceClick(type, id, claim)
           }}
           className="text-primary hover:underline cursor-pointer inline font-medium"
           type="button"
         >
           {children}
         </button>
+      )
+    }
+
+    // Special citation target highlight inside Markdown views
+    if (href === '#citation-target') {
+      return (
+        <mark
+          id="citation-highlight"
+          className="bg-amber-200 text-amber-950 dark:bg-amber-900/80 dark:text-amber-100 px-1 py-0.5 rounded font-semibold ring-2 ring-amber-400 shadow-sm animate-pulse inline"
+        >
+          {children}
+        </mark>
       )
     }
 

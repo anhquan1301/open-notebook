@@ -73,14 +73,14 @@ const getNavigation = (t: TFunction) => [
   },
 ] as const
 
-// The tri-hue mark recomposed in the owned palette: fern / gold / teal.
-function LogoPebbles({ className }: { className?: string }) {
+function AppLogo({ className }: { className?: string }) {
   return (
-    <span className={cn('flex items-center gap-[3px]', className)} aria-hidden="true">
-      <span className="size-[9px] rounded-[3px] bg-fern" />
-      <span className="size-[9px] rounded-[3px] bg-gold" />
-      <span className="size-[9px] rounded-[3px] bg-teal" />
-    </span>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/app-logo.png"
+      alt="Logo"
+      className={cn('size-7 object-contain shrink-0', className)}
+    />
   )
 }
 
@@ -139,7 +139,7 @@ export function AppSidebar() {
         >
           {isCollapsed ? (
             <div className="relative flex items-center justify-center w-full">
-              <LogoPebbles className="flex-col gap-[3px] transition-opacity group-hover:opacity-0" />
+              <AppLogo className="size-7 transition-opacity group-hover:opacity-0" />
               <Button
                 variant="ghost"
                 size="sm"
@@ -152,7 +152,7 @@ export function AppSidebar() {
           ) : (
             <>
               <div className="flex items-center gap-2.5">
-                <LogoPebbles />
+                <AppLogo className="size-7" />
                 <span className="font-display text-[15px] font-bold tracking-tight text-sidebar-foreground">
                   {t('common.appName')}
                 </span>

@@ -19,7 +19,9 @@ const nextConfig: NextConfig = {
   experimental: {
     // Increase proxy body size limit for file uploads (default is 10MB)
     // This allows larger files to be uploaded through the /api/* rewrite proxy to FastAPI
-    proxyClientMaxBodySize: '100mb',
+    proxyClientMaxBodySize: process.env.OPEN_NOTEBOOK_MAX_UPLOAD_SIZE_MB
+      ? `${process.env.OPEN_NOTEBOOK_MAX_UPLOAD_SIZE_MB}mb`
+      : '500mb',
   } as NextConfig['experimental'],
 
   // API Rewrites: Proxy /api/* requests to FastAPI backend

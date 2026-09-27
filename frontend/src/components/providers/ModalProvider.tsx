@@ -17,7 +17,7 @@ import { SourceDialog } from '@/components/sources/SourceDialog'
  * - insight: Source insight modal
  */
 export function ModalProvider() {
-  const { modalType, modalId, closeModal } = useModalManager()
+  const { modalType, modalId, highlightText, closeModal, clearHighlight } = useModalManager()
 
   return (
     <>
@@ -28,6 +28,8 @@ export function ModalProvider() {
           if (!open) closeModal()
         }}
         sourceId={modalId}
+        highlightText={highlightText}
+        onClearHighlight={clearHighlight}
       />
 
       {/* Note Modal */}

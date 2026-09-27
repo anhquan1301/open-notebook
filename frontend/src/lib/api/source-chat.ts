@@ -47,7 +47,7 @@ export const sourceChatApi = {
   },
 
   // Messaging with streaming
-  sendMessage: (sourceId: string, sessionId: string, data: SendMessageRequest) => {
+  sendMessage: (sourceId: string, sessionId: string, data: SendMessageRequest, signal?: AbortSignal) => {
     // Get auth token using the same logic as apiClient interceptor
     const token = getAuthToken()
 
@@ -58,6 +58,7 @@ export const sourceChatApi = {
     // Use fetch with ReadableStream for SSE
     return fetch(url, {
       method: 'POST',
+      signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token && { 'Authorization': `Bearer ${token}` })

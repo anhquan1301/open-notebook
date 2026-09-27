@@ -126,6 +126,12 @@ class DefaultModelsResponse(BaseModel):
     default_speech_to_text_model: Optional[str] = None
     default_embedding_model: Optional[str] = None
     default_tools_model: Optional[str] = None
+    chat_max_tokens: Optional[int] = Field(
+        None,
+        ge=1024,
+        le=131072,
+        description="Max output tokens for chat and reasoning (default: 8192)",
+    )
 
 
 class ProviderAvailabilityResponse(BaseModel):
@@ -308,6 +314,7 @@ class SettingsResponse(BaseModel):
     docling_ocr: Optional[bool] = None
     docling_formulas: Optional[bool] = None
     docling_vision: Optional[bool] = None
+    vision_ocr: Optional[bool] = None
     youtube_preferred_languages: Optional[List[str]] = None
 
 
@@ -319,6 +326,7 @@ class SettingsUpdate(BaseModel):
     docling_ocr: Optional[bool] = None
     docling_formulas: Optional[bool] = None
     docling_vision: Optional[bool] = None
+    vision_ocr: Optional[bool] = None
     youtube_preferred_languages: Optional[List[str]] = None
 
 

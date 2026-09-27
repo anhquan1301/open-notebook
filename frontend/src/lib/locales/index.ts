@@ -1,3 +1,4 @@
+import { viVN } from './vi-VN';
 import { zhCN } from './zh-CN';
 import { enUS } from './en-US';
 import { zhTW } from './zh-TW';
@@ -14,11 +15,12 @@ import { plPL } from './pl-PL';
 import { trTR } from './tr-TR';
 
 export const resources = {
-  'zh-CN': { translation: zhCN },
+  'vi-VN': { translation: viVN },
   'en-US': { translation: enUS },
+  'ja-JP': { translation: jaJP },
+  'zh-CN': { translation: zhCN },
   'zh-TW': { translation: zhTW },
   'pt-BR': { translation: ptBR },
-  'ja-JP': { translation: jaJP },
   'it-IT': { translation: itIT },
   'fr-FR': { translation: frFR },
   'ru-RU': { translation: ruRU },
@@ -40,20 +42,9 @@ export type Language = {
 };
 
 export const languages: Language[] = [
-  { code: 'en-US', label: 'English' },
-  { code: 'tr-TR', label: 'Türkçe' },
-  { code: 'ca-ES', label: 'Català' },
-  { code: 'zh-CN', label: '简体中文' },
-  { code: 'zh-TW', label: '繁體中文' },
-  { code: 'pt-BR', label: 'Português' },
+  { code: 'vi-VN', label: 'Tiếng Việt' },
   { code: 'ja-JP', label: '日本語' },
-  { code: 'it-IT', label: 'Italiano' },
-  { code: 'fr-FR', label: 'Français' },
-  { code: 'ru-RU', label: 'Русский' },
-  { code: 'bn-IN', label: 'বাংলা' },
-  { code: 'es-ES', label: 'Español' },
-  { code: 'de-DE', label: 'Deutsch' },
-  { code: 'pl-PL', label: 'Polski' },
+  { code: 'en-US', label: 'English' },
 ];
 
-export { zhCN, enUS, zhTW, ptBR, jaJP, itIT, frFR, ruRU, bnIN, caES, esES, deDE, plPL, trTR };
+export { viVN, zhCN, enUS, zhTW, ptBR, jaJP, itIT, frFR, ruRU, bnIN, caES, esES, deDE, plPL, trTR };

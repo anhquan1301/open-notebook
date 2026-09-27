@@ -637,6 +637,12 @@ class TestContentSettings:
         assert settings.docling_vision is False
         assert ContentSettings(docling_vision=True).docling_vision is True
 
+    def test_vision_ocr_defaults_on(self):
+        """Vision OCR is on by default for hybrid OCR."""
+        settings = ContentSettings()
+        assert settings.vision_ocr is True
+        assert ContentSettings(vision_ocr=False).vision_ocr is False
+
 
 # ============================================================================
 # TEST SUITE 9: Episode Profile Validation

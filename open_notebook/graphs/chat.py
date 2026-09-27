@@ -10,11 +10,12 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from typing_extensions import TypedDict
 
+from open_notebook.ai.models import DefaultModels
 from open_notebook.ai.provision import provision_langchain_model
 from open_notebook.config import LANGGRAPH_CHECKPOINT_FILE
 from open_notebook.domain.notebook import Notebook
 from open_notebook.exceptions import OpenNotebookError
-from open_notebook.utils import clean_thinking_content
+from open_notebook.utils import clean_thinking_content, parse_thinking_content
 from open_notebook.utils.error_classifier import classify_error
 from open_notebook.utils.text_utils import extract_text_content
 
@@ -36,16 +37,19 @@ def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict
         )
 
         # Handle async model provisioning from sync context
+        async def _get_model():
+            defaults = await DefaultModels.get_instance()
+            max_tokens = getattr(defaults, "chat_max_tokens", None) or 8192
+            return await provision_langchain_model(
+                str(payload), model_id, "chat", max_tokens=max_tokens
+            )
+
         def run_in_new_loop():
             """Run the async function in a new event loop"""
             new_loop = asyncio.new_event_loop()
             try:
                 asyncio.set_event_loop(new_loop)
-                return new_loop.run_until_complete(
-                    provision_langchain_model(
-                        str(payload), model_id, "chat", max_tokens=8192
-                    )
-                )
+                return new_loop.run_until_complete(_get_model())
             finally:
                 new_loop.close()
                 asyncio.set_event_loop(None)
@@ -61,21 +65,27 @@ def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict
                 model = future.result()
         except RuntimeError:
             # No event loop running, safe to use asyncio.run()
-            model = asyncio.run(
-                provision_langchain_model(
-                    str(payload),
-                    model_id,
-                    "chat",
-                    max_tokens=8192,
-                )
-            )
+            model = asyncio.run(_get_model())
 
         ai_message = model.invoke(payload)
 
-        # Clean thinking content from AI response (e.g., <think>...</think> tags)
+        # Extract and preserve thinking content from AI response (e.g., <think>...</think> tags)
         content = extract_text_content(ai_message.content)
-        cleaned_content = clean_thinking_content(content)
-        cleaned_message = ai_message.model_copy(update={"content": cleaned_content})
+        thinking_content, cleaned_content = parse_thinking_content(content)
+
+        extra_kwargs = dict(getattr(ai_message, "additional_kwargs", {}) or {})
+        if not thinking_content:
+            thinking_content = extra_kwargs.get("reasoning_content")
+
+        if thinking_content:
+            extra_kwargs["thinking"] = thinking_content
+
+        cleaned_message = ai_message.model_copy(
+            update={
+                "content": cleaned_content,
+                "additional_kwargs": extra_kwargs,
+            }
+        )
 
         return {"messages": cleaned_message}
     except OpenNotebookError:
